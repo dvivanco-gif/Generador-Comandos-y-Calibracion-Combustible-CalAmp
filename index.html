@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Generador de Comandos y Calibración</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f0f2f5;
+      color: #333;
+    }
+    h2 {
+      text-align: center;
+      color: #0056a3;
+    }
+    .contenedor {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .panel {
+      flex: 1;
+      background: #fff;
+      padding: 20px 30px;
+      border-radius: 12px;
+      box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+    }
+    label {
+      display: block;
+      margin-top: 15px;
+      font-weight: bold;
+      color: #444;
+    }
+    select, input {
+      width: 100%;
+      margin-top: 6px;
+      padding: 10px;
+      border: 1px solid #bbb;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    button {
+      margin-top: 20px;
+      width: 100%;
+      padding: 12px;
+      font-size: 16px;
+      background: #0078d7;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: 0.2s;
+    }
+    button:hover {
+      background: #005fa3;
+    }
+    .resultado {
+      margin-top: 25px;
+      padding: 15px;
+      border-radius: 10px;
+      background: #f9f9f9;
+      border-left: 6px solid #0078d7;
+      font-family: "Courier New", monospace;
+      font-size: 14px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .mensaje-extra {
+      margin-top: 15px;
+      padding: 12px;
+      background: #fff8e1;
+      border-left: 6px solid #ff9800;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #5d4037;
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+
+  <div class="contenedor">
+    <!-- Panel Izquierdo -->
+    <div class="panel">
+      <h2>Generador de Comandos CalAmp</h2>
+
+      <label for="vid">VID:</label>
+      <input type="text" id="vid" placeholder="Ej. 46345915">
+
+      <label for="evento">Selecciona un evento:</label>
+      <select id="evento">
+        <option value="">-- Selecciona --</option>
+        <option value="aceleracion">Aceleración</option>
+        <option value="frenado">Frenado</option>
+        <option value="giro_izquierda">Giro Izquierda</option>
+        <option value="giro_derecha">Giro Derecha</option>
+        <option value="exceso_velocidad">Exceso Velocidad</option>
+        <option value="delay_exceso_velocidad">Delay Exceso Velocidad</option>
+        <option value="remolque">Remolque</option>
+        <option value="impacto">Impacto</option>
+        <option value="descarga_inusual">Descarga Inusual</option>
+        <option value="abastecimiento">Abastecimiento</option>
+      </select>
+
+      <div id="campoValor">
+        <label for="valor">Valor:</label>
+        <input type="number" id="valor" placeholder="Ej. 18">
+      </div>
+
+      <div id="campoCapacidad" class="hidden">
+        <label for="capacidad">Capacidad del tanque:</label>
+        <input type="number" id="capacidad" placeholder="Ej. 220">
+      </div>
+
+      <button onclick="generar()">🔹 Generar Comandos</button>
+
+      <div id="resultado" class="resultado">Los comandos aparecerán aquí...</div>
+      <div id="mensajeExtra" class="mensaje-extra hidden"></div>
+    </div>
+
+    <!-- Panel Derecho -->
+    <div class="panel">
+      <h2>CREACIÓN DE CALIBRACIÓN DE COMBUSTIBLE</h2>
+
+      <label for="litros">Capacidad máxima del tanque medida por el técnico (en litros):</label>
+      <input type="number" id="litros" value="100" step="0.01">
+
+      <label for="ea">EA medido por el técnico:</label>
+      <input type="number" id="ea" value="9000" step="0.01">
+
+      <button onclick="interpolar()">Generar puntos</button>
+
+      <h3>Interpolación (60 + 1 puntos):</h3>
+      <pre id="resultadoTexto" class="resultado"></pre>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script>
+    function pad4_hex(n) {
+      return ("0000" + n.toString(16).toUpperCase()).slice(-4);
+    }
+    function kmh_to_cms(kmh) {
+      return Math.round(kmh * 1000 / 36);
+    }
+
+    function generar() {
+      let vid = document.getElementById("vid").value.trim();
+      let evento = document.getElementById("evento").value;
+      let valor = parseInt(document.getElementById("valor").value);
+      let capacidad = parseInt(document.getElementById("capacidad").value);
+      let resultado = document.getElementById("resultado");
+      let mensajeExtra = document.getElementById("mensajeExtra");
+
+      mensajeExtra.innerHTML = "";
+      mensajeExtra.classList.add("hidden");
+
+      if (!evento || isNaN(valor)) {
+        resultado.innerHTML = "⚠️ Ingresa los datos requeridos.";
+        return;
+      }
+
+      let hunter = "", geosys = "", sms = "";
+
+      if (["aceleracion","frenado","giro_izquierda","giro_derecha"].includes(evento)) {
+        let cod = {"aceleracion":"00","frenado":"01","giro_izquierda":"02","giro_derecha":"03"}[evento];
+        let hex4 = pad4_hex(valor);
+        hunter = `01 06 00 00 01 01 1B 00 03 ${cod} ${hex4.slice(0,2)} ${hex4.slice(2)}`;
+        if (vid) geosys = `0x8305${vid}0106000001011B0003${cod}${hex4}`;
+        sms = `!RP,283,${parseInt(cod,16)},${valor}`;
+      }
+      else if (evento === "exceso_velocidad") {
+        let cms = kmh_to_cms(valor);
+        let hex4 = pad4_hex(cms);
+        hunter = `01 04 01 06 00 00 01 01 01 00 03 00 ${hex4.slice(0,2)} ${hex4.slice(2)}`;
+        if (vid) geosys = `0x8305${vid}010401060000010101000300${hex4}`;
+        sms = `!RP,257,0,${cms}`;
+      }
+      else if (evento === "delay_exceso_velocidad") {
+        let hex4 = pad4_hex(valor);
+        hunter = `01 04 01 06 00 00 01 01 02 00 04 00 00 ${hex4.slice(0,2)} ${hex4.slice(2)}`;
+        if (vid) geosys = `0x8305${vid}01040106000001010200040000${hex4}`;
+        sms = `!RP,258,0,${valor}`;
+      }
+      else if (evento === "descarga_inusual") {
+        if (isNaN(capacidad)) { resultado.innerHTML = "⚠️ Ingresa capacidad de tanque."; return; }
+        let calc = Math.ceil(((9000/capacidad)*valor)+1);
+        let hex4 = pad4_hex(calc);
+        hunter = `01 04 01 06 00 00 01 01 0A 00 05 13 00 00 ${hex4.slice(0,2)} ${hex4.slice(2)}`;
+        if (vid) geosys = `0x8305${vid}01040106000001010A0005130000${hex4}`;
+        sms = `!RP,266,19,${calc}`;
+      }
+      else if (evento === "abastecimiento") {
+        if (isNaN(capacidad)) { resultado.innerHTML = "⚠️ Ingresa capacidad de tanque."; return; }
+        let calc = Math.ceil(((9000/capacidad)*valor)+1);
+        let val32 = (0x100000000 - calc) >>> 0;
+        let hex8 = ("00000000" + val32.toString(16).toUpperCase()).slice(-8);
+        let h_bytes = hex8.match(/.{1,2}/g).join(" ");
+        hunter = `01 04 01 06 00 00 01 01 0A 00 05 14 ${h_bytes}`;
+        if (vid) geosys = `0x8305${vid}01040106000001010A000514${hex8}`;
+        sms = `!RP,266,20,${val32}`;
+      }
+      else if (evento === "remolque") {
+        let hex4 = pad4_hex(valor);
+        hunter = `01 06 00 00 01 04 17 00 03 00 ${hex4.slice(0,2)} ${hex4.slice(2)}`;
+        if (vid) geosys = `0x8305${vid}01060000010417000300${hex4}`;
+        sms = "!RP,1047,0," + valor;
+      }
+      else if (evento === "impacto") {
+        let hex4 = pad4_hex(valor);
+        hunter = `01 06 00 00 01 03 86 00 03 00 ${hex4.slice(0,2)} ${hex4.slice(2)}`;
+        if (vid) geosys = `0x8305${vid}01060000010386000300${hex4}`;
+        sms = "!RP,902,0," + valor;
+      }
+
+      // Mostrar resultados
+      resultado.innerHTML = 
+        "📌 <b>Hunter Pro:</b><br>" + hunter + "<br><br>" +
+        "🌐 <b>GeoSys:</b><br>" + (geosys || "(no VID)") + "<br><br>" +
+        "📲 <b>SMS:</b><br>" + sms;
+
+      // Mostrar mensajes extra según evento
+      if (evento === "delay_exceso_velocidad") {
+        mensajeExtra.innerHTML = `⚠️ Usar este comando si NO se quiere delay de exceso de velocidad:<br>
+        Hunter Pro : 01 04 01 06 00 00 01 01 02 00 04 00 00 00 00<br>
+        Geosys : 0x8305(inserte VID)010401060000010102000400000000<br>
+        SMS : !RP,258,0,0<br>
+        es decir, para que el evento sea inmediato.`;
+        mensajeExtra.classList.remove("hidden");
+      }
+      else if (evento === "exceso_velocidad") {
+        mensajeExtra.innerHTML = `ℹ️ Para desactivar o colocar un valor alto de exceso de velocidad, el valor es 250:<br>
+        Hunter Pro : 01 04 01 06 00 00 01 01 01 00 03 00 1B 21<br>
+        Geosys : 0x8305(inserte VID)0104010600000101010003001B21<br>
+        SMS : !RP,257,0,6945<br>`;
+        mensajeExtra.classList.remove("hidden");
+      }
+      else if (evento === "aceleracion") {
+        mensajeExtra.innerHTML = `ℹ️ El valor máximo (en mG) es 900:<br>
+        Hunter Pro : 01 06 00 00 01 01 1B 00 03 00 03 84<br>
+        GeoSys : 0x8305(inserte VID)0106000001011B0003000384<br>
+        SMS : !RP,283,0,900<br>`;
+        mensajeExtra.classList.remove("hidden");
+      }
+      else if (evento === "frenado") {
+        mensajeExtra.innerHTML = `ℹ️ El valor máximo (en mG) es 900:<br>
+        Hunter Pro : 01 06 00 00 01 01 1B 00 03 01 03 84<br>
+        GeoSys : 0x8305(inserte VID)0106000001011B0003010384<br>
+        SMS : !RP,283,1,900<br>`;
+        mensajeExtra.classList.remove("hidden");
+      }
+      else if (evento === "giro_izquierda") {
+        mensajeExtra.innerHTML = `ℹ️ El valor máximo (en mG) es 900:<br>
+        Hunter Pro : 01 06 00 00 01 01 1B 00 03 02 03 84<br>
+        GeoSys : 0x8305(inserte VID)0106000001011B0003020384<br>
+        SMS : !RP,283,2,900<br>`;
+        mensajeExtra.classList.remove("hidden");
+      }
+      else if (evento === "giro_derecha") {
+        mensajeExtra.innerHTML = `ℹ️ El valor máximo (en mG) es 900:<br>
+        Hunter Pro : 01 06 00 00 01 01 1B 00 03 03 03 84<br>
+        GeoSys : 0x8305(inserte VID)0106000001011B0003030384<br>
+        SMS : !RP,283,3,900<br>`;
+        mensajeExtra.classList.remove("hidden");
+      }
+      else if (evento === "remolque") {
+        mensajeExtra.innerHTML = `ℹ️ Configuración estándar de REMOLQUE, valor en 900.<br>
+        Hunter Pro : 01 06 00 00 01 04 17 00 03 00 03 84<br>
+        GeoSys : 0x8305(inserte VID)010600000104170003000384<br>
+        SMS : !RP,1047,0,900<br>`;
+        mensajeExtra.classList.remove("hidden");
+      }
+      else if (evento === "impacto") {
+        mensajeExtra.innerHTML = `ℹ️ Configuración estándar de IMPACTO, valor en 9000.<br>
+        Hunter Pro : 01 06 00 00 01 03 86 00 03 00 23 28<br>
+        GeoSys : 0x8305(inserte VID)010600000103860003002328<br>
+        SMS : !RP,902,0,9000<br>`;
+        mensajeExtra.classList.remove("hidden");
+      }
+    }
+
+    document.getElementById("evento").addEventListener("change", function() {
+      let evento = this.value;
+      let campoCapacidad = document.getElementById("campoCapacidad");
+      let labelValor = document.querySelector("label[for='valor']");
+      let inputValor = document.getElementById("valor");
+
+      labelValor.textContent = "Valor:";
+      inputValor.placeholder = "Ej. ingresar valor en mG";
+      campoCapacidad.classList.add("hidden");
+
+      if (evento === "descarga_inusual") {
+        campoCapacidad.classList.remove("hidden");
+        labelValor.textContent = "Descarga (en litros):";
+        inputValor.placeholder = "Ej. 18";
+      }
+      else if (evento === "abastecimiento") {
+        campoCapacidad.classList.remove("hidden");
+        labelValor.textContent = "Abastecimiento (en litros):";
+        inputValor.placeholder = "Ej. 18";
+      }
+      else if (evento === "exceso_velocidad") {
+        labelValor.textContent = "Velocidad:";
+        inputValor.placeholder = "Ingresar en km/h";
+      }
+    });
+
+    function interpolar() {
+        const litrosMax = parseFloat(document.getElementById("litros").value);
+        const eaMedido = parseFloat(document.getElementById("ea").value);
+
+        // Validación: EA debe estar entre 1000 y 9000
+        if (eaMedido < 1000 || eaMedido > 9000) {
+            alert("⚠️ El valor de EA debe estar entre 1000 y 9000.");
+            return;
+        }
+
+        const cantidad = 60;
+        const mV_inicio = 1000;
+        const mV_fin = eaMedido;
+        const paso_mV = (mV_fin - mV_inicio) / (cantidad - 1);
+
+        let salida = "";
+
+        // Generar hasta EA, pero sin pasarse de 9000
+        for (let i = 0; i < cantidad; i++) {
+            let mV_actual = mV_inicio + paso_mV * i;
+            if (mV_actual > 9000) break; // evita pasar de 9000
+            let litros_actual = ((mV_actual - mV_inicio) / (mV_fin - mV_inicio)) * litrosMax;
+            salida += `${mV_actual.toFixed(2)},${litros_actual.toFixed(2)}\n`;
+        }
+
+        // Si EA < 9000, agregamos el último punto extendido (capacidad +20)
+        if (eaMedido < 9000) {
+            let litros_extra = litrosMax + 20;
+            salida += `9000.00,${litros_extra.toFixed(2)}`;
+        }
+
+        document.getElementById("resultadoTexto").textContent = salida.trim();
+    }
+  </script>
+</body>
+</html>
